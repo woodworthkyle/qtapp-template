@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- ── App identity ──────────────────────────────────────────────── -->
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+
+    <key>CFBundleDisplayName</key>
+    <string>$(PRODUCT_NAME)</string>
+
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+
+    <key>CFBundleVersion</key>
+    <string>1</string>
+
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+
+    <!-- ── Python module to run (read by AppDelegate) ────────────────── -->
+    <!-- Set to the top-level Python package containing __main__.py      -->
+    <key>MainModule</key>
+    <string>qtapp</string>
+
+    <!-- ── iOS requirements ──────────────────────────────────────────── -->
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>arm64</string>
+    </array>
+
+    <!-- ── Supported interface orientations ──────────────────────────── -->
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+
+    <!-- ── Scene / status bar ────────────────────────────────────────── -->
+    <!-- Qt manages the window directly; disable multi-scene support     -->
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+    </dict>
+
+    <key>UIStatusBarHidden</key>
+    <false/>
+
+    <key>UIStatusBarStyle</key>
+    <string>UIStatusBarStyleDefault</string>
+
+    <!-- ── File sharing / document access ────────────────────────────── -->
+    <!-- Exposes Documents/ in the Files app                             -->
+    <key>UIFileSharingEnabled</key>
+    <true/>
+
+    <!-- Allows picking files outside the app sandbox                   -->
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
+
+    <!-- ── URL scheme ────────────────────────────────────────────────── -->
+    <!-- Uncomment and set to register a custom URL scheme.             -->
+    <!-- Add CFBundleURLTypes to enable; requires --full rebuild.       -->
+    <!--
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>myapp</string>
+            </array>
+        </dict>
+    </array>
+    -->
+
+    <!-- ── iCloud ────────────────────────────────────────────────────── -->
+    <!-- Uncomment to enable iCloud Drive document storage.              -->
+    <!-- Also enable "iCloud Documents" capability in Xcode.            -->
+    <!--
+    <key>NSUbiquitousContainers</key>
+    <dict>
+        <key>iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)</key>
+        <dict>
+            <key>NSUbiquitousContainerIsDocumentScopePublic</key>
+            <true/>
+            <key>NSUbiquitousContainerName</key>
+            <string>$(PRODUCT_NAME)</string>
+            <key>NSUbiquitousContainerSupportedFolderLevels</key>
+            <string>Any</string>
+        </dict>
+    </dict>
+    -->
+
+</dict>
+</plist>

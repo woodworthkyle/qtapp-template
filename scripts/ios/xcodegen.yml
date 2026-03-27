@@ -1,0 +1,138 @@
+# xcodegen.yml — XcodeGen project spec for qtapp iOS
+#
+# Usage:
+#   xcodegen generate --spec scripts/ios/xcodegen.yml
+#
+# Prerequisites (handled by setup.sh):
+#   - xcodegen installed (brew install xcodegen)
+#   - Python.xcframework present at frameworks/Python.xcframework
+#   - PySide6 dylibs/frameworks present at frameworks/PySide6/
+#
+# Variables are substituted from config.env or the environment.
+# To override, set them before running xcodegen:
+#   BUNDLE_ID=dev.you.app APP_NAME=MyApp xcodegen generate ...
+#
+# After generation, open ${APP_NAME}.xcodeproj in Xcode to configure
+# code signing (or use an .xcconfig — see config.env.example).
+
+name: "${APP_NAME}"
+options:
+  bundleIdPrefix: ""       # full BUNDLE_ID set per-target below
+  deploymentTarget:
+    iOS: "16.0"
+  groupSortPosition: top
+  createIntermediateGroups: true
+  xcodeVersion: "15.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    ENABLE_BITCODE: NO
+    # Allow unsigned frameworks (PySide6 dylibs are re-signed by the build phase)
+    OTHER_CODE_SIGN_FLAGS: "--deep"
+    # Required for Python ctypes / dlopen on iOS
+    OTHER_LDFLAGS:
+      - "-Wl,-export_dynamic"
+
+targets:
+  "${APP_NAME}":
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+
+    # ── Info.plist ────────────────────────────────────────────────────────
+    info:
+      path: "${SRCROOT}/Info.plist"
+
+    # ── Entitlements ──────────────────────────────────────────────────────
+    entitlements:
+      path: "${SRCROOT}/entitlements.plist"
+
+    # ── Source files ──────────────────────────────────────────────────────
+    sources:
+      - path: objc
+        type: group
+        includes:
+          - "*.m"
+          - "*.h"
+
+    # ── Resources bundled into .app ───────────────────────────────────────
+    # setup.sh copies the following into resources/ before xcodegen runs:
+    #   resources/python/         — Python.xcframework unpacked stdlib + headers
+    #   resources/app/            — Python app source (src/qtapp/)
+    #   resources/app_packages/   — pip-installed dependencies
+    resources:
+      - path: resources
+        type: folder
+
+    # ── Frameworks / libraries ────────────────────────────────────────────
+    dependencies:
+      # Python interpreter
+      - framework: frameworks/Python.xcframework
+        embed: true
+        codeSign: true
+      # PySide6 / Qt frameworks are embedded via the "Sign & embed PySide6" build phase.
+      # Individual dylibs listed here would require repeating every Qt module;
+      # the build phase script handles signing and embedding them all at once.
+
+    # ── Build settings ────────────────────────────────────────────────────
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "${BUNDLE_ID}"
+        PRODUCT_NAME: "${APP_NAME}"
+        INFOPLIST_FILE: "${SRCROOT}/Info.plist"
+        CODE_SIGN_ENTITLEMENTS: "${SRCROOT}/entitlements.plist"
+        # Python.xcframework header search path
+        HEADER_SEARCH_PATHS:
+          - "$(inherited)"
+          - "${SRCROOT}/frameworks/Python.xcframework/ios-arm64/Python.framework/Headers"
+        # Link against Python.framework
+        FRAMEWORK_SEARCH_PATHS:
+          - "$(inherited)"
+          - "${SRCROOT}/frameworks"
+          - "${SRCROOT}/frameworks/Python.xcframework/ios-arm64"
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/Frameworks"
+        # Needed so the ObjC app delegate finds AppDelegate.h
+        GCC_PREPROCESSOR_DEFINITIONS:
+          - "$(inherited)"
+        CLANG_ENABLE_OBJC_ARC: YES
+        # Silence deprecated UIApplicationMain warning (we pass nil for principal class)
+        GCC_WARN_ABOUT_DEPRECATED_FUNCTIONS: NO
+
+      configs:
+        Debug:
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+          GCC_OPTIMIZATION_LEVEL: "0"
+          MTL_ENABLE_DEBUG_INFO: INCLUDE_SOURCE
+        Release:
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+          GCC_OPTIMIZATION_LEVEL: s
+          VALIDATE_PRODUCT: YES
+
+    # ── Build phases ──────────────────────────────────────────────────────
+    buildPhases:
+
+      # Sign and embed all PySide6 / Qt dylibs before Xcode's own sign step.
+      # The script iterates frameworks/PySide6/ and re-signs each dylib with
+      # the project's signing identity, then copies them into the app bundle.
+      - type: runScript
+        name: "Sign and embed PySide6 dylibs"
+        script: |
+          bash "${SRCROOT}/scripts/ios/sign_pyside6.sh"
+        runOnlyWhenInstalling: false
+        basedOnDependencyAnalysis: false
+
+      # Sync Python app source into the bundle (incremental rsync).
+      # This lets you iterate on Python code without a full Xcode rebuild.
+      - type: runScript
+        name: "Sync Python app source"
+        script: |
+          DEST="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/app"
+          mkdir -p "$DEST"
+          rsync -a --delete "${SRCROOT}/../../src/qtapp/" "$DEST/qtapp/"
+        runOnlyWhenInstalling: false
+        basedOnDependencyAnalysis: false
