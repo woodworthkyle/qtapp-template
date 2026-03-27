@@ -95,21 +95,30 @@ targets:
     entitlements:
       path: entitlements.plist
 
-    # ── Source files ──────────────────────────────────────────────────────
+    # ── Source files + bundle resources ──────────────────────────────────
+    # Folder references (type: folder) go under sources; XcodeGen adds them
+    # to Copy Bundle Resources automatically (they are NOT compiled).
+    #
+    # setup.sh populates resources/ with:
+    #   resources/python/         — Python stdlib (from Python.xcframework)
+    #   resources/app/            — Python app source (src/qtapp/)
+    #   resources/app_packages/   — pip-installed dependencies
     sources:
       - path: objc
         type: group
         includes:
           - "*.m"
           - "*.h"
-
-    # ── Resources bundled into .app ───────────────────────────────────────
-    # setup.sh copies the following into resources/ before xcodegen runs:
-    #   resources/python/         — Python.xcframework unpacked stdlib + headers
-    #   resources/app/            — Python app source (src/qtapp/)
-    #   resources/app_packages/   — pip-installed dependencies
-    resources:
-      - path: resources
+      # Bundle resources (folder references — copied to bundle root, not compiled)
+      # Layout matches Briefcase / main.m expectations:
+      #   python/   → PYTHONHOME ({bundleRoot}/python)
+      #   app/      → Python app source ({bundleRoot}/app)
+      #   app_packages/ → pip packages (added via site.addsitedir)
+      - path: python
+        type: folder
+      - path: app
+        type: folder
+      - path: app_packages
         type: folder
 
     # ── Frameworks / libraries ────────────────────────────────────────────

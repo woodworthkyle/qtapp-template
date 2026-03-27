@@ -41,10 +41,11 @@ PYTHON_BUILD="${PYTHON_BUILD:-b8}"            # build tag, e.g. "b8"
 PYTHON_SUPPORT_TAG="${PYTHON_SUPPORT_TAG:-${PYTHON_TAG}-${PYTHON_BUILD}}"
 
 FRAMEWORKS_DIR="${IOS_DIR}/frameworks"
-RESOURCES_DIR="${IOS_DIR}/resources"
+# Bundle resources sit directly inside scripts/ios/ as folder references.
+# Layout matches main.m expectations: python/ app/ app_packages/ at bundle root.
 APP_SRC_DIR="${REPO_ROOT}/src/qtapp"
-APP_DEST_DIR="${RESOURCES_DIR}/app/qtapp"
-APP_PACKAGES_DIR="${RESOURCES_DIR}/app_packages"
+APP_DEST_DIR="${IOS_DIR}/app/qtapp"
+APP_PACKAGES_DIR="${IOS_DIR}/app_packages"
 
 PYTHON_XCF_NAME="Python-${PYTHON_TAG}-iOS-support.${PYTHON_BUILD}.tar.gz"
 PYTHON_XCF_URL="https://github.com/beeware/Python-Apple-support/releases/download/${PYTHON_SUPPORT_TAG}/${PYTHON_XCF_NAME}"
@@ -70,6 +71,7 @@ log "Creating directory structure..."
 mkdir -p "${FRAMEWORKS_DIR}"
 mkdir -p "${APP_DEST_DIR}"
 mkdir -p "${APP_PACKAGES_DIR}"
+mkdir -p "${IOS_DIR}/python"
 
 # ── Download Python.xcframework ───────────────────────────────────────────────
 PYTHON_XCF_DIR="${FRAMEWORKS_DIR}/Python.xcframework"
@@ -106,9 +108,9 @@ fi
 #     lib/python${TAG}/          ← stdlib lives here (top-level, shared across slices)
 #     ios-arm64/Python.framework/ ← framework binary + headers only
 STDLIB_SRC="${PYTHON_XCF_DIR}/lib/python${PYTHON_TAG}"
-STDLIB_DEST="${RESOURCES_DIR}/python/lib/python${PYTHON_TAG}"
-# Python home expected by main.m: resources/python/
-# PYTHONPATH includes: resources/python/lib/python${TAG} and .../lib-dynload
+STDLIB_DEST="${IOS_DIR}/python/lib/python${PYTHON_TAG}"
+# Python home expected by main.m: {bundleRoot}/python
+# PYTHONPATH: {bundleRoot}/python/lib/python${TAG} and .../lib-dynload
 
 if [[ -d "${STDLIB_DEST}" ]]; then
     log "Python stdlib already present — skipping."

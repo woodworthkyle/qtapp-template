@@ -16,31 +16,58 @@ if [[ -f "$CONFIG_ENV" ]]; then
 fi
 
 DEVICE_UUID="${DEVICE_UUID:?Set DEVICE_UUID in config.env or environment}"
-XCODE_PROJECT="${XCODE_PROJECT:?Set XCODE_PROJECT (path to .xcodeproj dir) in config.env}"
 BUILD_CONFIG="${BUILD_CONFIG:-Debug}"
 SDK="${SDK:-iphoneos}"
-XCCONFIG="${XCCONFIG:-$REPO_ROOT/config.xcconfig}"
-
 APP_NAME="${APP_NAME:-QtApp}"
-BUILD_DIR="$(dirname "$XCODE_PROJECT")/build"
-APP_PATH="$BUILD_DIR/${BUILD_CONFIG}-iphoneos/${APP_NAME}.app"
+
+# XCODE_PROJECT may be relative to repo root or absolute
+XCODE_PROJECT="${XCODE_PROJECT:-scripts/ios/${APP_NAME}.xcodeproj}"
+if [[ "${XCODE_PROJECT}" != /* ]]; then
+    XCODE_PROJECT="${REPO_ROOT}/${XCODE_PROJECT}"
+fi
+
+# Build output directory and final .app path (absolute)
+BUILD_DIR="$(dirname "${XCODE_PROJECT}")/build"
+DERIVED_DATA="${BUILD_DIR}/DerivedData"
+APP_PATH="${DERIVED_DATA}/Build/Products/${BUILD_CONFIG}-iphoneos/${APP_NAME}.app"
+
+# Only pass -xcconfig if the file actually exists
+XCCONFIG_ARGS=()
+if [[ -n "${XCCONFIG:-}" && -f "${XCCONFIG}" ]]; then
+    XCCONFIG_ARGS=(-xcconfig "${XCCONFIG}")
+elif [[ -f "${REPO_ROOT}/config.xcconfig" ]]; then
+    XCCONFIG_ARGS=(-xcconfig "${REPO_ROOT}/config.xcconfig")
+fi
+
+DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-}"
 
 echo "==> Building ${APP_NAME} (${BUILD_CONFIG} / ${SDK})..."
+echo "    Project: ${XCODE_PROJECT}"
 xcodebuild \
     -allowProvisioningUpdates \
     build \
-    ${XCCONFIG:+-xcconfig "$XCCONFIG"} \
-    -project "$XCODE_PROJECT" \
-    -destination "platform=iOS" \
-    -configuration "$BUILD_CONFIG" \
+    "${XCCONFIG_ARGS[@]+"${XCCONFIG_ARGS[@]}"}" \
+    -project "${XCODE_PROJECT}" \
+    -scheme "${APP_NAME}" \
+    -configuration "${BUILD_CONFIG}" \
     -arch arm64 \
-    -sdk "$SDK" \
+    -sdk "${SDK}" \
+    -derivedDataPath "${DERIVED_DATA}" \
     TARGETED_DEVICE_FAMILY=1 \
-    | grep -E "(error:|BUILD |FAILED)" | grep -v "^note:" || true
+    ${DEVELOPMENT_TEAM:+DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM}"} \
+    CODE_SIGN_STYLE=Automatic \
+    PROVISIONING_PROFILE_SPECIFIER="" \
+    | grep -E "(error:|warning: .*(error|failed)|BUILD |FAILED)" \
+    | grep -v "^note:" || true
+
+if [[ ! -d "${APP_PATH}" ]]; then
+    echo "ERROR: Build failed — ${APP_PATH} not found" >&2
+    exit 1
+fi
 
 echo "==> Installing to device ${DEVICE_UUID}..."
 xcrun devicectl device install app \
-    --device "$DEVICE_UUID" \
-    "$APP_PATH"
+    --device "${DEVICE_UUID}" \
+    "${APP_PATH}"
 
 echo "==> Build + install complete."
