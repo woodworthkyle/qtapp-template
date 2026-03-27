@@ -41,12 +41,59 @@ targets:
     deploymentTarget: "16.0"
 
     # ── Info.plist ────────────────────────────────────────────────────────
+    # XcodeGen owns Info.plist — it regenerates it on every `xcodegen generate`.
+    # Add/remove keys here; do NOT hand-edit Info.plist.
+    # To add a URL scheme or iCloud container, uncomment the relevant block.
     info:
-      path: "${SRCROOT}/Info.plist"
+      path: Info.plist
+      properties:
+        # Python module to run — AppDelegate reads this key at launch.
+        # Change to your app's top-level package name when deriving a new app.
+        MainModule: qtapp
+
+        LSRequiresIPhoneOS: true
+        UIRequiredDeviceCapabilities:
+          - arm64
+
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        "UISupportedInterfaceOrientations~ipad":
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+
+        # Qt manages the window; disable iOS multi-scene
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+
+        UIStatusBarHidden: false
+        UIStatusBarStyle: UIStatusBarStyleDefault
+
+        # Expose Documents/ in the Files app
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+
+        # ── URL scheme (uncomment + fill in to register) ──────────────────
+        # After changing: re-run setup.sh to regenerate the project.
+        # CFBundleURLTypes:
+        #   - CFBundleURLName: $(PRODUCT_BUNDLE_IDENTIFIER)
+        #     CFBundleURLSchemes:
+        #       - myapp
+
+        # ── iCloud Documents (uncomment + enable capability in Xcode) ─────
+        # NSUbiquitousContainers:
+        #   "iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)":
+        #     NSUbiquitousContainerIsDocumentScopePublic: true
+        #     NSUbiquitousContainerName: $(PRODUCT_NAME)
+        #     NSUbiquitousContainerSupportedFolderLevels: Any
 
     # ── Entitlements ──────────────────────────────────────────────────────
+    # Paths relative to this spec file (scripts/ios/).
     entitlements:
-      path: "${SRCROOT}/entitlements.plist"
+      path: entitlements.plist
 
     # ── Source files ──────────────────────────────────────────────────────
     sources:
@@ -80,17 +127,16 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: "${BUNDLE_ID}"
         PRODUCT_NAME: "${APP_NAME}"
-        INFOPLIST_FILE: "${SRCROOT}/Info.plist"
-        CODE_SIGN_ENTITLEMENTS: "${SRCROOT}/entitlements.plist"
+        CODE_SIGN_ENTITLEMENTS: "$(SRCROOT)/entitlements.plist"
         # Python.xcframework header search path
         HEADER_SEARCH_PATHS:
           - "$(inherited)"
-          - "${SRCROOT}/frameworks/Python.xcframework/ios-arm64/Python.framework/Headers"
+          - "$(SRCROOT)/frameworks/Python.xcframework/ios-arm64/Python.framework/Headers"
         # Link against Python.framework
         FRAMEWORK_SEARCH_PATHS:
           - "$(inherited)"
-          - "${SRCROOT}/frameworks"
-          - "${SRCROOT}/frameworks/Python.xcframework/ios-arm64"
+          - "$(SRCROOT)/frameworks"
+          - "$(SRCROOT)/frameworks/Python.xcframework/ios-arm64"
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path/Frameworks"
@@ -122,7 +168,7 @@ targets:
       - type: runScript
         name: "Sign and embed PySide6 dylibs"
         script: |
-          bash "${SRCROOT}/scripts/ios/sign_pyside6.sh"
+          bash "${SRCROOT}/sign_pyside6.sh"
         runOnlyWhenInstalling: false
         basedOnDependencyAnalysis: false
 

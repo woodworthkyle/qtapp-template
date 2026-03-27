@@ -3,7 +3,7 @@
 #
 # What this script does:
 #   1. Checks prerequisites (xcodegen, pip, Python 3.12+).
-#   2. Downloads Python.xcframework from BeeWare cpython-apple-support.
+#   2. Downloads Python.xcframework from BeeWare Python-Apple-support.
 #   3. Unpacks Python.xcframework into scripts/ios/frameworks/.
 #   4. Installs pip dependencies into scripts/ios/resources/app_packages/.
 #   5. Copies app source into scripts/ios/resources/app/.
@@ -34,8 +34,11 @@ fi
 # ── Variables (with defaults) ─────────────────────────────────────────────────
 APP_NAME="${APP_NAME:-QtApp}"
 BUNDLE_ID="${BUNDLE_ID:-dev.kwoodworth.qtapp}"
-PYTHON_VERSION="${PYTHON_VERSION:-3.12.10}"   # cpython-apple-support release tag
-PYTHON_TAG="${PYTHON_TAG:-3.12}"              # e.g. "3.12" for path construction
+# BeeWare Python-Apple-support uses tag format: "3.12-b8"
+# Set PYTHON_SUPPORT_TAG to override, e.g. "3.12-b8" or "3.13-b13"
+PYTHON_TAG="${PYTHON_TAG:-3.12}"              # minor version, e.g. "3.12"
+PYTHON_BUILD="${PYTHON_BUILD:-b8}"            # build tag, e.g. "b8"
+PYTHON_SUPPORT_TAG="${PYTHON_SUPPORT_TAG:-${PYTHON_TAG}-${PYTHON_BUILD}}"
 
 FRAMEWORKS_DIR="${IOS_DIR}/frameworks"
 RESOURCES_DIR="${IOS_DIR}/resources"
@@ -43,8 +46,8 @@ APP_SRC_DIR="${REPO_ROOT}/src/qtapp"
 APP_DEST_DIR="${RESOURCES_DIR}/app/qtapp"
 APP_PACKAGES_DIR="${RESOURCES_DIR}/app_packages"
 
-PYTHON_XCF_NAME="Python-${PYTHON_VERSION}-iOS-support.b2.tar.gz"
-PYTHON_XCF_URL="https://github.com/beeware/cpython-apple-support/releases/download/${PYTHON_VERSION}/${PYTHON_XCF_NAME}"
+PYTHON_XCF_NAME="Python-${PYTHON_TAG}-iOS-support.${PYTHON_BUILD}.tar.gz"
+PYTHON_XCF_URL="https://github.com/beeware/Python-Apple-support/releases/download/${PYTHON_SUPPORT_TAG}/${PYTHON_XCF_NAME}"
 PYTHON_XCF_ARCHIVE="${IOS_DIR}/${PYTHON_XCF_NAME}"
 
 log()  { echo "[setup] $*"; }
@@ -74,7 +77,7 @@ if [[ -d "${PYTHON_XCF_DIR}" ]]; then
     log "Python.xcframework already present — skipping download."
     log "  (delete ${PYTHON_XCF_DIR} to re-download)"
 else
-    log "Downloading Python.xcframework ${PYTHON_VERSION}..."
+    log "Downloading Python.xcframework ${PYTHON_SUPPORT_TAG}..."
     log "  URL: ${PYTHON_XCF_URL}"
     curl -L --progress-bar -o "${PYTHON_XCF_ARCHIVE}" "${PYTHON_XCF_URL}"
 
@@ -98,31 +101,25 @@ else
 fi
 
 # ── Install Python stdlib into resources/python ───────────────────────────────
-# Python.xcframework bundles the stdlib as a zip; unpack it so the interpreter
-# can find modules without zipimport (simpler path setup, easier to inspect).
-STDLIB_SRC="${PYTHON_XCF_DIR}/ios-arm64/Python.framework/lib/python${PYTHON_TAG}"
+# Python-Apple-support xcframework layout:
+#   Python.xcframework/
+#     lib/python${TAG}/          ← stdlib lives here (top-level, shared across slices)
+#     ios-arm64/Python.framework/ ← framework binary + headers only
+STDLIB_SRC="${PYTHON_XCF_DIR}/lib/python${PYTHON_TAG}"
 STDLIB_DEST="${RESOURCES_DIR}/python/lib/python${PYTHON_TAG}"
+# Python home expected by main.m: resources/python/
+# PYTHONPATH includes: resources/python/lib/python${TAG} and .../lib-dynload
 
 if [[ -d "${STDLIB_DEST}" ]]; then
-    log "Python stdlib already unpacked — skipping."
+    log "Python stdlib already present — skipping."
 else
-    log "Unpacking Python stdlib to resources/python/..."
-    mkdir -p "${STDLIB_DEST}"
-    # Copy stdlib (Python.xcframework ships it unpacked in the framework)
-    if [[ -d "${STDLIB_SRC}" ]]; then
-        rsync -a "${STDLIB_SRC}/" "${STDLIB_DEST}/"
-        log "Stdlib copied from xcframework."
-    else
+    if [[ ! -d "${STDLIB_SRC}" ]]; then
         die "Expected stdlib at ${STDLIB_SRC} — check Python.xcframework layout."
     fi
-
-    # Also copy lib-dynload (binary extension modules)
-    LIB_DYNLOAD_SRC="${STDLIB_SRC}/lib-dynload"
-    if [[ -d "${LIB_DYNLOAD_SRC}" ]]; then
-        log "Copying lib-dynload..."
-        mkdir -p "${STDLIB_DEST}/lib-dynload"
-        cp -R "${LIB_DYNLOAD_SRC}/" "${STDLIB_DEST}/lib-dynload/"
-    fi
+    log "Copying Python stdlib to resources/python/..."
+    mkdir -p "${STDLIB_DEST}"
+    rsync -a "${STDLIB_SRC}/" "${STDLIB_DEST}/"
+    log "Stdlib ready ($(find "${STDLIB_DEST}" -name "*.py" | wc -l | tr -d ' ') .py files)"
 fi
 
 # ── Copy app source ───────────────────────────────────────────────────────────
