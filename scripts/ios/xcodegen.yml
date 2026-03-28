@@ -89,17 +89,24 @@ targets:
         #     CFBundleURLSchemes:
         #       - myapp
 
-        # ── iCloud Documents (uncomment + enable capability in Xcode) ─────
-        # NSUbiquitousContainers:
-        #   "iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)":
-        #     NSUbiquitousContainerIsDocumentScopePublic: true
-        #     NSUbiquitousContainerName: $(PRODUCT_NAME)
-        #     NSUbiquitousContainerSupportedFolderLevels: Any
+        # ── iCloud Documents ───────────────────────────────────────────────
+        NSUbiquitousContainers:
+          "iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)":
+            NSUbiquitousContainerIsDocumentScopePublic: true
+            NSUbiquitousContainerName: $(PRODUCT_NAME)
+            NSUbiquitousContainerSupportedFolderLevels: Any
 
     # ── Entitlements ──────────────────────────────────────────────────────
-    # Paths relative to this spec file (scripts/ios/).
+    # XcodeGen generates entitlements.plist from these properties.
+    # Add/remove keys here; do NOT hand-edit entitlements.plist.
     entitlements:
       path: entitlements.plist
+      properties:
+        # iCloud Documents — exposes container in Files app
+        com.apple.developer.icloud-services:
+          - CloudDocuments
+        com.apple.developer.ubiquity-container-identifiers:
+          - "iCloud.$(CFBundleIdentifier)"
 
     # ── Pre-build scripts ──────────────────────────────────────────────────
     # preBuildScripts run before Copy Bundle Resources.  We sign the source
@@ -234,4 +241,13 @@ targets:
           DEST="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/app"
           mkdir -p "$DEST"
           rsync -a --delete "${SRCROOT}/../../src/qtapp/" "$DEST/qtapp/"
+        runOnlyWhenInstalling: false
+
+      # Bundle example sub-apps so they're available in the launcher
+      # without a separate deploy step.  Picker scans bundle_root/apps/.
+      - name: "Sync bundled apps"
+        script: |
+          DEST="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/apps"
+          mkdir -p "$DEST"
+          rsync -a --delete "${SRCROOT}/../../apps/" "$DEST/"
         runOnlyWhenInstalling: false

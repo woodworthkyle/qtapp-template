@@ -93,8 +93,9 @@ fi
 
 # ── deploy all apps ────────────────────────────────────────────────────────────
 if [[ $DEPLOY_APPS -eq 1 ]]; then
-    echo "==> Deploying all apps/*.py → Documents/"
-    for f in "$APPS_DIR"/*.py; do
+    echo "==> Deploying all apps/*.{py,qml} → Documents/"
+    for f in "$APPS_DIR"/*.py "$APPS_DIR"/*.qml; do
+        [[ -f "$f" ]] || continue
         name=$(basename "$f")
         echo "    $name"
         _devicectl_copy "$f" "Documents/${name}"

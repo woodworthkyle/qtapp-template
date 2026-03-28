@@ -1,35 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-
-    <!-- ── Keychain access group ─────────────────────────────────────── -->
-    <!-- Required for any keychain use; set to your team ID prefix.     -->
-    <!-- <key>keychain-access-groups</key>                              -->
-    <!-- <array>                                                         -->
-    <!--     <string>$(AppIdentifierPrefix)$(CFBundleIdentifier)</string>-->
-    <!-- </array>                                                        -->
-
-    <!-- ── iCloud key-value store ────────────────────────────────────── -->
-    <!-- Uncomment if using NSUbiquitousKeyValueStore                   -->
-    <!-- <key>com.apple.developer.ubiquity-kvstore-identifier</key>     -->
-    <!-- <string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>  -->
-
-    <!-- ── iCloud Documents ──────────────────────────────────────────── -->
-    <!-- Uncomment together with NSUbiquitousContainers in Info.plist   -->
-    <!-- <key>com.apple.developer.icloud-services</key>                 -->
-    <!-- <array>                                                         -->
-    <!--     <string>CloudDocuments</string>                            -->
-    <!-- </array>                                                        -->
-    <!-- <key>com.apple.developer.ubiquity-container-identifiers</key>  -->
-    <!-- <array>                                                         -->
-    <!--     <string>iCloud.$(CFBundleIdentifier)</string>              -->
-    <!-- </array>                                                        -->
-
-    <!-- ── Network access (for WireGuard / local LAN debugging) ─────── -->
-    <!-- <key>com.apple.developer.networking.multicast</key>            -->
-    <!-- <true/>                                                         -->
-
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudDocuments</string>
+	</array>
+	<key>com.apple.developer.ubiquity-container-identifiers</key>
+	<array>
+		<string>iCloud.$(CFBundleIdentifier)</string>
+	</array>
 </dict>
 </plist>

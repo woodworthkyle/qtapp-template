@@ -48,6 +48,13 @@ def _setup_qt_paths():
             bundle_root = parent
             break
     if bundle_root is None:
+        # Fallback: find {bundle}/app on sys.path (handles edge cases)
+        for entry in sys.path:
+            p = Path(entry)
+            if p.name == "app" and (p.parent / "app_packages").is_dir():
+                bundle_root = p.parent
+                break
+    if bundle_root is None:
         print("WARNING: could not find bundle_root", file=sys.stderr)
         return
     plugins = bundle_root / "PlugIns"
@@ -64,6 +71,7 @@ def _preload_pyside6_dylibs(bundle_root: Path):
     QApplication is created.  Required on iOS because dlopen order matters."""
     import ctypes
     frameworks_dir = bundle_root / "Frameworks"
+    # libpyside6 / shiboken6 flat dylibs
     for pattern in ("libshiboken6*.dylib", "libpyside6.abi3*.dylib", "libpyside6qml.abi3*.dylib"):
         for dylib in sorted(frameworks_dir.glob(pattern)):
             try:
@@ -71,7 +79,10 @@ def _preload_pyside6_dylibs(bundle_root: Path):
                 print(f"Preloaded: {dylib.name}", file=sys.stderr)
             except OSError as e:
                 print(f"ERROR preloading {dylib}: {e}", file=sys.stderr)
-    for fw_dir in sorted(frameworks_dir.glob("PySide6.Qt*.framework")):
+    # Qt*.framework binaries — sign_pyside6.sh copies them from app_packages/PySide6/
+    # into Frameworks/ as plain "Qt*.framework" (no "PySide6." prefix).
+    # Load all of them so their QML plugin static registrations fire.
+    for fw_dir in sorted(frameworks_dir.glob("Qt*.framework")):
         fw_bin = fw_dir / fw_dir.stem
         if fw_bin.exists():
             try:
@@ -184,9 +195,40 @@ def _show_error_modal(title: str, tb: str, parent=None):
 
 # ── script discovery ──────────────────────────────────────────────────────────
 
+def _find_bundle_root() -> Path | None:
+    """Return the app bundle root (the dir containing app/, app_packages/, Frameworks/).
+
+    Works in both normal and hot-reload contexts.  In hot-reload, __file__
+    resolves to ~/Documents/_app_override.py so parent traversal misses the
+    bundle.  Instead we scan sys.path for an 'app' entry whose parent looks
+    like a bundle — xcodebuild always puts {bundle}/app on PYTHONPATH.
+    """
+    # Fast path: __file__ is inside the bundle (non-hot-reload)
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "app_packages").is_dir() and (parent / "Frameworks").is_dir():
+            return parent
+
+    # Hot-reload fallback: find {bundle}/app on sys.path
+    for entry in sys.path:
+        p = Path(entry)
+        if p.name == "app" and (p.parent / "app_packages").is_dir():
+            return p.parent
+
+    return None
+
+
 def _get_script_dirs():
     """Return list of (label, Path) directories to scan for sub-app scripts."""
     dirs = []
+
+    # Bundled example apps — always available without a separate deploy step.
+    bundle_root = _find_bundle_root()
+    if bundle_root is not None:
+        bundled = bundle_root / "apps"
+        if bundled.is_dir():
+            dirs.append(("Built-in", bundled))
+
     docs = Path(os.path.expanduser("~")) / "Documents"
     docs.mkdir(parents=True, exist_ok=True)
     dirs.append(("Documents", docs))
@@ -442,6 +484,7 @@ def _load_subapp_widget(script_path: Path, back_fn):
     if script_path.suffix == ".qml":
         from PySide6.QtQuickWidgets import QQuickWidget
         from PySide6.QtCore import QUrl
+
         w = QQuickWidget()
         w.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
         w.setSource(QUrl.fromLocalFile(str(script_path)))
