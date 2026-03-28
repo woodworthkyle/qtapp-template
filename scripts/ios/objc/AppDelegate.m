@@ -18,74 +18,90 @@
 
 void crash_dialog(NSString *);
 
-// ── Python helper: run a string of Python code, log + crash on error ─────────
-static void run_python(const char *code, const char *label) {
-    if (PyRun_SimpleString(code) != 0) {
-        PyObject *exc = PyErr_Occurred();
-        NSString *details = @"(no exception info)";
-        if (exc) {
-            PyObject *type, *value, *tb;
-            PyErr_Fetch(&type, &value, &tb);
-            PyErr_NormalizeException(&type, &value, &tb);
+// ── Python helper: format current exception to NSString ──────────────────────
+// Call only when PyErr_Occurred() != NULL.  Clears the exception.
+static NSString *format_python_exception(void) {
+    PyObject *type, *value, *tb;
+    PyErr_Fetch(&type, &value, &tb);
+    if (!type) return @"(no exception info)";
+    PyErr_NormalizeException(&type, &value, &tb);
 
-            // Format with traceback if available
-            PyObject *io_mod    = PyImport_ImportModule("io");
-            PyObject *tb_mod    = PyImport_ImportModule("traceback");
-            PyObject *sio       = NULL;
-            PyObject *print_exc = NULL;
-            PyObject *result    = NULL;
-            NSString *formatted = nil;
+    NSString *result = nil;
 
-            if (io_mod && tb_mod) {
-                sio = PyObject_CallMethod(io_mod, "StringIO", NULL);
-                if (sio) {
-                    print_exc = PyObject_GetAttrString(tb_mod, "print_exception");
-                    if (print_exc) {
-                        PyObject *args = Py_BuildValue("(OOO)", type, value, tb ? tb : Py_None);
-                        PyObject *kwargs = PyDict_New();
-                        PyDict_SetItemString(kwargs, "file", sio);
-                        result = PyObject_Call(print_exc, args, kwargs);
-                        Py_XDECREF(args);
-                        Py_XDECREF(kwargs);
-                    }
-                    if (result) {
-                        PyObject *getvalue = PyObject_GetAttrString(sio, "getvalue");
-                        if (getvalue) {
-                            PyObject *s = PyObject_CallObject(getvalue, NULL);
-                            if (s) {
-                                const char *cstr = PyUnicode_AsUTF8(s);
-                                if (cstr) formatted = [NSString stringWithUTF8String:cstr];
-                                Py_DECREF(s);
-                            }
-                            Py_DECREF(getvalue);
-                        }
-                    }
-                }
+    PyObject *io_mod = PyImport_ImportModule("io");
+    PyObject *tb_mod = PyImport_ImportModule("traceback");
+    if (io_mod && tb_mod) {
+        PyObject *sio = PyObject_CallMethod(io_mod, "StringIO", NULL);
+        if (sio) {
+            PyObject *print_exc = PyObject_GetAttrString(tb_mod, "print_exception");
+            if (print_exc) {
+                PyObject *args   = Py_BuildValue("(OOO)", type, value, tb ? tb : Py_None);
+                PyObject *kwargs = PyDict_New();
+                PyDict_SetItemString(kwargs, "file", sio);
+                PyObject *ret = PyObject_Call(print_exc, args, kwargs);
+                Py_XDECREF(args);
+                Py_XDECREF(kwargs);
+                Py_XDECREF(ret);
+                Py_DECREF(print_exc);
             }
-            if (formatted) {
-                details = formatted;
-            } else {
-                // Fallback: repr(value)
-                PyObject *repr = PyObject_Repr(value);
-                if (repr) {
-                    const char *cstr = PyUnicode_AsUTF8(repr);
-                    if (cstr) details = [NSString stringWithUTF8String:cstr];
-                    Py_DECREF(repr);
+            PyObject *getvalue = PyObject_GetAttrString(sio, "getvalue");
+            if (getvalue) {
+                PyObject *s = PyObject_CallObject(getvalue, NULL);
+                if (s) {
+                    const char *cstr = PyUnicode_AsUTF8(s);
+                    if (cstr) result = [NSString stringWithUTF8String:cstr];
+                    Py_DECREF(s);
                 }
+                Py_DECREF(getvalue);
             }
-            Py_XDECREF(result);
-            Py_XDECREF(print_exc);
-            Py_XDECREF(sio);
-            Py_XDECREF(tb_mod);
-            Py_XDECREF(io_mod);
-            Py_XDECREF(tb);
-            Py_XDECREF(value);
-            Py_XDECREF(type);
-            PyErr_Clear();
+            Py_DECREF(sio);
         }
+    }
+    Py_XDECREF(tb_mod);
+    Py_XDECREF(io_mod);
+
+    if (!result) {
+        // Fallback: repr(value)
+        PyObject *repr = PyObject_Repr(value);
+        if (repr) {
+            const char *cstr = PyUnicode_AsUTF8(repr);
+            if (cstr) result = [NSString stringWithUTF8String:cstr];
+            Py_DECREF(repr);
+        }
+    }
+
+    Py_XDECREF(tb);
+    Py_XDECREF(value);
+    Py_XDECREF(type);
+    PyErr_Clear();
+    return result ?: @"(could not format exception)";
+}
+
+// ── Python helper: run a string of Python code, log + crash on error ─────────
+// Uses Py_CompileString + PyEval_EvalCode instead of PyRun_SimpleString so that
+// we capture the exception *before* it is cleared by an internal PyErr_Print().
+static void run_python(const char *code, const char *label) {
+    // Get __main__ module globals
+    PyObject *main_mod  = PyImport_AddModule("__main__");  // borrowed
+    PyObject *globals   = main_mod ? PyModule_GetDict(main_mod) : NULL;  // borrowed
+
+    PyObject *compiled  = Py_CompileString(code, label, Py_file_input);
+    if (!compiled) {
+        NSString *details = format_python_exception();
+        crash_dialog([NSString stringWithFormat:@"Python compile error in %s:\n\n%@", label, details]);
+        exit(-1);
+    }
+
+    PyObject *result = PyEval_EvalCode(compiled, globals, globals);
+    Py_DECREF(compiled);
+
+    if (!result) {
+        // Exception is still set — capture it before anything else clears it.
+        NSString *details = format_python_exception();
         crash_dialog([NSString stringWithFormat:@"Python error in %s:\n\n%@", label, details]);
         exit(-1);
     }
+    Py_DECREF(result);
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -95,6 +111,16 @@ static void run_python(const char *code, const char *label) {
 - (BOOL)application:(UIApplication *)application
     didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
+    // ── Create the root UIWindow so Qt has a keyWindow to attach its view ─
+    // Without this, keyWindow is nil during applicationDidFinishLaunching and
+    // Qt's QUIView has nowhere to render.  Qt's raise_qt_view adds the view
+    // as a subview of this window after the event loop starts.
+    self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
+    UIViewController *rootVC = [[UIViewController alloc] init];
+    rootVC.view.backgroundColor = [UIColor blackColor];
+    self.window.rootViewController = rootVC;
+    [self.window makeKeyAndVisible];
+
     // ── Determine which Python module to run ──────────────────────────────
     NSDictionary *info    = [[NSBundle mainBundle] infoDictionary];
     NSString     *module  = info[@"MainModule"];

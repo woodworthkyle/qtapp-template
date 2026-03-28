@@ -124,6 +124,30 @@ else
     log "Stdlib ready ($(find "${STDLIB_DEST}" -name "*.py" | wc -l | tr -d ' ') .py files)"
 fi
 
+# ── Copy arch-specific extension modules (lib-dynload .so files) ─────────────
+# These live in an arch-specific path in the xcframework, not alongside the
+# pure-Python stdlib.  They must be code-signed by the Xcode build phase.
+DYNLOAD_SRC="${PYTHON_XCF_DIR}/ios-arm64/lib-arm64/python${PYTHON_TAG}/lib-dynload"
+DYNLOAD_DEST="${IOS_DIR}/python/lib/python${PYTHON_TAG}/lib-dynload"
+if [[ -d "${DYNLOAD_DEST}" ]]; then
+    log "lib-dynload already present — skipping."
+else
+    if [[ ! -d "${DYNLOAD_SRC}" ]]; then
+        die "Expected lib-dynload at ${DYNLOAD_SRC} — check Python.xcframework layout."
+    fi
+    log "Copying lib-dynload extension modules..."
+    mkdir -p "${DYNLOAD_DEST}"
+    rsync -a "${DYNLOAD_SRC}/" "${DYNLOAD_DEST}/"
+    log "lib-dynload ready ($(find "${DYNLOAD_DEST}" -name "*.so" | wc -l | tr -d ' ') .so files)"
+fi
+
+# ── Copy _sysconfigdata (arch-specific; needed by sysconfig / pip) ────────────
+SYSCFG_SRC="${PYTHON_XCF_DIR}/ios-arm64/lib-arm64/python${PYTHON_TAG}/_sysconfigdata__ios_arm64-iphoneos.py"
+if [[ -f "${SYSCFG_SRC}" && ! -f "${STDLIB_DEST}/_sysconfigdata__ios_arm64-iphoneos.py" ]]; then
+    log "Copying _sysconfigdata..."
+    cp "${SYSCFG_SRC}" "${STDLIB_DEST}/"
+fi
+
 # ── Copy app source ───────────────────────────────────────────────────────────
 log "Syncing app source -> ${APP_DEST_DIR}..."
 rsync -a --delete "${APP_SRC_DIR}/" "${APP_DEST_DIR}/"

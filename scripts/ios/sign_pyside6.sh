@@ -58,16 +58,32 @@ if [ -d "${APP_PACKAGES}/PySide6" ]; then
     done
 fi
 
-# Sign any Qt .framework bundles that PySide6 ships inside app_packages
-# (some PySide6 wheels ship Qt as frameworks rather than loose dylibs)
-if [ -d "${APP_PACKAGES}/PySide6/Qt/lib" ]; then
-    find "${APP_PACKAGES}/PySide6/Qt/lib" -maxdepth 1 -name "*.framework" -type d | while read -r fw; do
+# Sign Qt .framework bundles shipped directly inside PySide6/ wheel dir.
+# Recent iOS PySide6 wheels place Qt*.framework next to the Python modules
+# (not in Qt/lib/).  Copy each to Frameworks/ so @rpath can resolve them.
+if [ -d "${APP_PACKAGES}/PySide6" ]; then
+    find "${APP_PACKAGES}/PySide6" -maxdepth 1 -name "*.framework" -type d | while read -r fw; do
         fw_name="$(basename "${fw}")"
         fw_dest="${FRAMEWORKS}/${fw_name}"
+        rm -rf "${fw_dest}"
         cp -Rf "${fw}" "${fw_dest}"
         codesign -f -s "${EXPANDED_CODE_SIGN_IDENTITY}" "${fw_dest}"
         echo "  signed framework: ${fw_name}"
         sign_count=$((sign_count + 1))
+    done
+fi
+
+# Also check the older Qt/lib layout as a fallback
+if [ -d "${APP_PACKAGES}/PySide6/Qt/lib" ]; then
+    find "${APP_PACKAGES}/PySide6/Qt/lib" -maxdepth 1 -name "*.framework" -type d | while read -r fw; do
+        fw_name="$(basename "${fw}")"
+        fw_dest="${FRAMEWORKS}/${fw_name}"
+        if [ ! -d "${fw_dest}" ]; then
+            cp -Rf "${fw}" "${fw_dest}"
+            codesign -f -s "${EXPANDED_CODE_SIGN_IDENTITY}" "${fw_dest}"
+            echo "  signed framework (Qt/lib): ${fw_name}"
+            sign_count=$((sign_count + 1))
+        fi
     done
 fi
 

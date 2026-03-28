@@ -491,7 +491,10 @@ class Launcher:
 
         if sys.platform == "ios":
             from qtapp.platform.ios import raise_qt_view
-            raise_qt_view(self._root)
+            from PySide6.QtCore import QTimer
+            # keyWindow is not available during applicationDidFinishLaunching;
+            # defer until the event loop is running.
+            QTimer.singleShot(100, self._root, lambda: raise_qt_view(self._root))
 
     def _launch(self, script_path: Path):
         while self._stack.count() > 1:

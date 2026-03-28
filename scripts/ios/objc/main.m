@@ -179,10 +179,18 @@ int main(int argc, char *argv[]) {
             } else {
                 NSLog(@"Installing Python NSLog handler...");
                 FILE *fd = fopen(nslog_script, "r");
-                if (fd == NULL) { crash_dialog(@"Unable to open nslog.py"); exit(-1); }
-                int r = PyRun_SimpleFileEx(fd, nslog_script, 1);
-                fclose(fd);
-                if (r != 0) { crash_dialog(@"Unable to install NSLog handler"); exit(r); }
+                if (fd != NULL) {
+                    int r = PyRun_SimpleFileEx(fd, nslog_script, 1);
+                    // fclose is handled by PyRun_SimpleFileEx (closefd=1 above)
+                    if (r != 0) {
+                        // Non-fatal: log warning, clear error, continue without NSLog redirect.
+                        // Python's own traceback will have been printed to stderr already.
+                        PyErr_Clear();
+                        NSLog(@"WARNING: NSLog handler failed to install (r=%d) — stderr will not appear in system log.", r);
+                    }
+                } else {
+                    NSLog(@"WARNING: Unable to open nslog.py — stderr will not appear in system log.");
+                }
             }
 
             // ── app_packages via site.addsitedir ──────────────────────────

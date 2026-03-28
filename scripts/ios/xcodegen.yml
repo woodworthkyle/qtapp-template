@@ -28,8 +28,10 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     ENABLE_BITCODE: NO
-    # Allow unsigned frameworks (PySide6 dylibs are re-signed by the build phase)
-    OTHER_CODE_SIGN_FLAGS: "--deep"
+    # PySide6 dylibs are re-signed by the build phase; Python .so files are
+    # pre-signed by a preBuildScript before Copy Bundle Resources runs.
+    # --deep is intentionally absent: it re-signs nested binaries after Xcode
+    # hashes them into CodeResources, breaking the bundle seal.
     # Required for Python ctypes / dlopen on iOS
     OTHER_LDFLAGS:
       - "-Wl,-export_dynamic"
@@ -94,6 +96,46 @@ targets:
     # Paths relative to this spec file (scripts/ios/).
     entitlements:
       path: entitlements.plist
+
+    # ── Pre-build scripts ──────────────────────────────────────────────────
+    # preBuildScripts run before Copy Bundle Resources.  We sign the source
+    # .so files in place so that when Xcode copies them via the folder
+    # reference they already carry a valid signature.  Xcode then hashes the
+    # signed files into CodeResources without needing --deep.
+    preBuildScripts:
+      - name: "Pre-sign Python extension modules"
+        shell: /bin/bash
+        script: |
+          set -e
+          if [ "$EFFECTIVE_PLATFORM_NAME" = "-iphonesimulator" ]; then
+              echo "Pre-sign Python ext: simulator build — skipping"
+              exit 0
+          fi
+          if [ -z "${EXPANDED_CODE_SIGN_IDENTITY}" ]; then
+              echo "Pre-sign Python ext: WARNING — no signing identity, skipping"
+              exit 0
+          fi
+          count=0
+          # Sign Python stdlib extension modules (lib-dynload)
+          DYNLOAD="${SRCROOT}/python/lib/python3.12/lib-dynload"
+          if [ -d "${DYNLOAD}" ]; then
+              for so in "${DYNLOAD}"/*.so; do
+                  [ -f "${so}" ] || continue
+                  codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" "${so}"
+                  count=$((count + 1))
+              done
+          fi
+          # Sign app_packages extension modules (.so / .abi3.so), excluding
+          # .framework directories (those are handled by sign_pyside6.sh).
+          APP_PKG="${SRCROOT}/app_packages"
+          if [ -d "${APP_PKG}" ]; then
+              while IFS= read -r -d '' so; do
+                  codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" "${so}"
+                  count=$((count + 1))
+              done < <(find "${APP_PKG}" -name "*.so" -not -path "*/.framework/*" -print0 2>/dev/null)
+          fi
+          echo "Pre-sign Python ext: signed ${count} source extension module(s)"
+        runOnlyWhenInstalling: false
 
     # ── Source files + bundle resources ──────────────────────────────────
     # Folder references (type: folder) go under sources; XcodeGen adds them
@@ -168,26 +210,24 @@ targets:
           GCC_OPTIMIZATION_LEVEL: s
           VALIDATE_PRODUCT: YES
 
-    # ── Build phases ──────────────────────────────────────────────────────
-    buildPhases:
+    # ── Post-build scripts ─────────────────────────────────────────────────
+    # xcodegen key: postBuildScripts (runs after Copy Bundle Resources,
+    # before Xcode's final app signing step).
+    postBuildScripts:
 
       # Sign and embed all PySide6 / Qt dylibs before Xcode's own sign step.
       # The script iterates frameworks/PySide6/ and re-signs each dylib with
       # the project's signing identity, then copies them into the app bundle.
-      - type: runScript
-        name: "Sign and embed PySide6 dylibs"
+      - name: "Sign and embed PySide6 dylibs"
         script: |
           bash "${SRCROOT}/sign_pyside6.sh"
         runOnlyWhenInstalling: false
-        basedOnDependencyAnalysis: false
 
       # Sync Python app source into the bundle (incremental rsync).
       # This lets you iterate on Python code without a full Xcode rebuild.
-      - type: runScript
-        name: "Sync Python app source"
+      - name: "Sync Python app source"
         script: |
           DEST="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/app"
           mkdir -p "$DEST"
           rsync -a --delete "${SRCROOT}/../../src/qtapp/" "$DEST/qtapp/"
         runOnlyWhenInstalling: false
-        basedOnDependencyAnalysis: false
