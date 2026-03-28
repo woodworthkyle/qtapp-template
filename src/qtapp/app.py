@@ -83,6 +83,66 @@ def _preload_pyside6_dylibs(bundle_root: Path):
 # Run at import time so paths are set before any PySide6 import.
 _setup_qt_paths()
 
+
+def _ios_show_qt_window(qt_widget) -> None:
+    """Add Qt's QUIView to the key UIWindow and resize it to fill the window.
+
+    Qt does not create its own QUIWindow when a third-party AppDelegate is in
+    use (it requires QIOSApplicationDelegate for that).  Instead we grab Qt's
+    native view via winId() and embed it directly in our AppDelegate UIWindow.
+
+    The view's frame is explicitly set to the window bounds so that the Qt
+    content fills the screen at the correct logical-point size (no zoom).
+
+    Inlined in app.py so hot-reload deploys it without a full Xcode rebuild.
+    """
+    if sys.platform != "ios":
+        return
+    import ctypes as _ct
+
+    class _CGRect(_ct.Structure):
+        _fields_ = [("x", _ct.c_double), ("y", _ct.c_double),
+                    ("w", _ct.c_double), ("h", _ct.c_double)]
+
+    try:
+        _lib = _ct.CDLL(None)
+        _lib.sel_registerName.restype   = _ct.c_void_p
+        _lib.sel_registerName.argtypes  = [_ct.c_char_p]
+        _lib.objc_getClass.restype      = _ct.c_void_p
+        _lib.objc_getClass.argtypes     = [_ct.c_char_p]
+
+        def _sel(name: str):
+            return _lib.sel_registerName(name.encode())
+
+        def _msg(obj, sel_name: str, *args, argtypes=None, restype=_ct.c_void_p):
+            _lib.objc_msgSend.restype  = restype
+            _lib.objc_msgSend.argtypes = [_ct.c_void_p, _ct.c_void_p] + (argtypes or [])
+            return _lib.objc_msgSend(obj, _sel(sel_name), *args)
+
+        shared_app = _msg(_lib.objc_getClass(b"UIApplication"), "sharedApplication")
+        key_window = _msg(shared_app, "keyWindow")
+        if not key_window:
+            print("_ios_show_qt_window: no keyWindow", file=sys.stderr)
+            return
+
+        # Get the window bounds (logical points).
+        bounds: _CGRect = _msg(key_window, "bounds", restype=_CGRect)
+        print(f"_ios_show_qt_window: keyWindow bounds={bounds.w}x{bounds.h}", file=sys.stderr)
+
+        # Qt widget geometry for comparison.
+        print(f"_ios_show_qt_window: qt_widget size={qt_widget.width()}x{qt_widget.height()}", file=sys.stderr)
+
+        view = _ct.c_void_p(int(qt_widget.winId()))
+
+        # Resize Qt's view to fill the window (fixes zoom if Qt used native pixels).
+        _msg(view, "setFrame:", bounds, argtypes=[_CGRect], restype=None)
+
+        _msg(key_window, "addSubview:", view, argtypes=[_ct.c_void_p])
+        _msg(key_window, "bringSubviewToFront:", view, argtypes=[_ct.c_void_p])
+        print("_ios_show_qt_window: Qt view embedded and raised", file=sys.stderr)
+    except Exception as e:
+        print(f"_ios_show_qt_window failed: {e}", file=sys.stderr)
+
 if sys.platform == "ios":
     # Disable setlocale — iOS locale handling breaks Python's locale module.
     import locale as _locale
@@ -142,12 +202,14 @@ def _get_script_dirs():
 
 
 def _scan_scripts():
-    """Return list of (label, Path) for all *.py files in script dirs."""
+    """Return list of (label, Path) for all *.py and *.qml files in script dirs."""
     scripts = []
     for dir_label, directory in _get_script_dirs():
         try:
             for p in sorted(directory.glob("*.py")):
                 scripts.append((f"[{dir_label}] {p.stem}", p))
+            for p in sorted(directory.glob("*.qml")):
+                scripts.append((f"[{dir_label}][QML] {p.stem}", p))
         except Exception as e:
             print(f"Error scanning {directory}: {e}", file=sys.stderr)
     return scripts
@@ -330,7 +392,7 @@ def _make_picker_widget(launch_fn):
             launch_fn(path)
 
     def on_browse():
-        path, _ = QFileDialog.getOpenFileName(root, "Select Python Script", "", "Python Files (*.py)")
+        path, _ = QFileDialog.getOpenFileName(root, "Select Script", "", "Scripts (*.py *.qml);;Python (*.py);;QML (*.qml)")
         if path:
             launch_fn(Path(path))
 
@@ -376,6 +438,19 @@ def _make_subapp_widget(script_path: Path, back_fn):
 def _load_subapp_widget(script_path: Path, back_fn):
     from PySide6.QtWidgets import QLabel
 
+    # ── QML file: wrap in QQuickWidget ───────────────────────────────────────
+    if script_path.suffix == ".qml":
+        from PySide6.QtQuickWidgets import QQuickWidget
+        from PySide6.QtCore import QUrl
+        w = QQuickWidget()
+        w.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
+        w.setSource(QUrl.fromLocalFile(str(script_path)))
+        if w.status() == QQuickWidget.Status.Error:
+            errors = "\n".join(e.toString() for e in w.errors())
+            raise RuntimeError(f"QML load errors:\n{errors}")
+        return w
+
+    # ── Python script: load module, look for create_widget / create_qml_engine
     spec = importlib.util.spec_from_file_location(script_path.stem, script_path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -383,7 +458,33 @@ def _load_subapp_widget(script_path: Path, back_fn):
     if hasattr(mod, "create_widget"):
         return mod.create_widget(back_fn)
 
-    label = QLabel(f"Loaded '{script_path.name}'.\nDefine create_widget(back_fn) to show UI.")
+    if hasattr(mod, "create_qml_engine"):
+        # create_qml_engine(back_fn) → QQmlApplicationEngine
+        # Embed the root QML object into a QQuickWidget for stack compatibility.
+        from PySide6.QtQuickWidgets import QQuickWidget
+        from PySide6.QtCore import QUrl
+        engine = mod.create_qml_engine(back_fn)
+        root_objects = engine.rootObjects()
+        if root_objects:
+            w = QQuickWidget()
+            w.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
+            # Keep engine alive alongside the widget.
+            w._qml_engine = engine
+            qml_file = engine.rootObjects()[0].property("source") if root_objects else None
+            if qml_file:
+                w.setSource(QUrl(qml_file))
+            return w
+        label = QLabel("create_qml_engine returned engine with no root objects.")
+        label.setStyleSheet("font-size: 14px; padding: 20px; color: orange;")
+        return label
+
+    label = QLabel(
+        f"Loaded '{script_path.name}'.\n\n"
+        "Define one of:\n"
+        "  create_widget(back_fn) → QWidget\n"
+        "  create_qml_engine(back_fn) → QQmlApplicationEngine\n"
+        "Or drop a .qml file directly."
+    )
     label.setWordWrap(True)
     label.setStyleSheet("font-size: 16px; padding: 20px;")
     return label
@@ -490,11 +591,12 @@ class Launcher:
         sys.modules["_qtapp_root_widget"] = self._root
 
         if sys.platform == "ios":
-            from qtapp.platform.ios import raise_qt_view
             from PySide6.QtCore import QTimer
-            # keyWindow is not available during applicationDidFinishLaunching;
-            # defer until the event loop is running.
-            QTimer.singleShot(100, self._root, lambda: raise_qt_view(self._root))
+            # Defer to after the first event-loop iteration so Qt's QUIWindow
+            # has been fully created, then make it the key visible window.
+            # Inlined here (not imported from ios.py) so hot-reload works
+            # without a full rebuild whenever this file changes.
+            QTimer.singleShot(100, self._root, lambda: _ios_show_qt_window(self._root))
 
     def _launch(self, script_path: Path):
         while self._stack.count() > 1:

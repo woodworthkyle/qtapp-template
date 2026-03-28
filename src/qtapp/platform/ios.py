@@ -76,30 +76,47 @@ def get_icloud_documents_path(container_id: str | None = None) -> Path | None:
     return None
 
 
-# ── raise Qt view ─────────────────────────────────────────────────────────────
+# ── show Qt window ────────────────────────────────────────────────────────────
 
-def raise_qt_view(qt_widget) -> None:
-    """Bring Qt's UIView to the front of the key UIWindow.
+def show_qt_window(qt_widget) -> None:
+    """Make Qt's native QUIWindow key and visible.
 
-    Call after showMaximized() to ensure Qt's native view is on top of
-    any UIWindow/UIView created by the iOS bootstrap.
+    On iOS 13+, a UIWindow must have its windowScene set or it won't display.
+    Qt creates a QUIWindow during showMaximized() but it may not have the
+    correct windowScene assigned when our own AppDelegate UIWindow is already
+    key.  This function:
+      1. Finds Qt's actual QUIWindow via the widget's native view handle.
+      2. Copies the windowScene from the current key window onto Qt's window.
+      3. Calls makeKeyAndVisible on Qt's window (not addSubview — that causes
+         coordinate-space zoom).
     """
     if sys.platform != "ios":
         return
     try:
         view_ptr = int(qt_widget.winId())
+        qt_view = ctypes.c_void_p(view_ptr)
+
+        # Qt's native window (QUIWindow) — the UIWindow containing Qt's view.
+        qt_window = _msg(qt_view, "window")
+        if not qt_window:
+            print("show_qt_window: Qt's QUIWindow not yet created", file=sys.stderr)
+            return
+
+        # Copy the windowScene from the existing key window so that Qt's
+        # window is associated with the active UIWindowScene (required iOS 13+).
         shared_app = _msg(_cls("UIApplication"), "sharedApplication")
         key_window = _msg(shared_app, "keyWindow")
-        if not key_window:
-            print("raise_qt_view: no keyWindow", file=sys.stderr)
-            return
-        _msg(key_window, "addSubview:",
-             ctypes.c_void_p(view_ptr), argtypes=[ctypes.c_void_p])
-        _msg(key_window, "bringSubviewToFront:",
-             ctypes.c_void_p(view_ptr), argtypes=[ctypes.c_void_p])
-        print("Qt view raised to front", file=sys.stderr)
+        if key_window:
+            scene = _msg(key_window, "windowScene")
+            if scene:
+                _msg(ctypes.c_void_p(qt_window), "setWindowScene:",
+                     ctypes.c_void_p(scene), argtypes=[ctypes.c_void_p])
+
+        # Make Qt's window the key visible window.
+        _msg(ctypes.c_void_p(qt_window), "makeKeyAndVisible")
+        print("show_qt_window: Qt QUIWindow made key and visible", file=sys.stderr)
     except Exception as e:
-        print(f"raise_qt_view failed: {e}", file=sys.stderr)
+        print(f"show_qt_window failed: {e}", file=sys.stderr)
 
 
 # ── URL scheme handler ────────────────────────────────────────────────────────

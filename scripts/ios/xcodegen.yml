@@ -53,6 +53,10 @@ targets:
         # Change to your app's top-level package name when deriving a new app.
         MainModule: qtapp
 
+        # Empty UILaunchScreen opts in to full native screen size.
+        # Without this iOS runs the app in 320×480 compatibility mode.
+        UILaunchScreen: {}
+
         LSRequiresIPhoneOS: true
         UIRequiredDeviceCapabilities:
           - arm64

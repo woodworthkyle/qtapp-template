@@ -1,17 +1,12 @@
 # qtapp-template wishlist
 
-## iOS bootstrap (high priority)
-- Replace the current Briefcase/Toga iOS bootstrap with a custom Xcode project template
-  that calls Python directly from ObjC, removing the Toga dependency entirely at the
-  build/infra level (not just the Python level).  `_Bootstrap.main_loop()` currently
-  relies on a Briefcase-compatible entry point; a custom bootstrap could call
-  `QApplication.exec()` directly from ObjC after Python init.
-- Investigate `UIApplicationMain` + `QApplication` coexistence:
-  Qt's iOS platform plugin (`libqios`) registers as a `UIApplicationDelegate` subscriber.
-  Confirm the correct integration point and whether `QApplication.exec()` is needed
-  at all when embedded inside an existing `UIApplicationMain` run loop.
+## iOS bootstrap
+- ~~Replace the current Briefcase/Toga iOS bootstrap with a custom Xcode project~~ ✓ Done
+- Make app lifecycle handled all in python
+  - `AppDelegate.m` (ObjC) is required to call `UIApplicationMain` and bootstrap Python — iOS hard constraint.
+  - Option: subclass `QIOSApplicationDelegate` so Qt owns the app delegate, then route all lifecycle events to Python via `QGuiApplication.applicationStateChanged` and `QDesktopServices.setUrlHandler()`.
 - `keyWindow` is deprecated on iOS 13+ (use `UIWindowScene.keyWindow`).
-  Update `raise_qt_view` in `platform/ios.py` accordingly.
+  Update any remaining `keyWindow` usage in `platform/ios.py` if it resurfaces.
 
 ## iOS: iCloud
 - Expose iCloud container in the Files app (requires enabling iCloud Drive in

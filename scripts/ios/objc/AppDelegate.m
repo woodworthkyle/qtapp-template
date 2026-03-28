@@ -111,13 +111,13 @@ static void run_python(const char *code, const char *label) {
 - (BOOL)application:(UIApplication *)application
     didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
-    // ── Create the root UIWindow so Qt has a keyWindow to attach its view ─
-    // Without this, keyWindow is nil during applicationDidFinishLaunching and
-    // Qt's QUIView has nowhere to render.  Qt's raise_qt_view adds the view
-    // as a subview of this window after the event loop starts.
+    // ── Create an initial UIWindow so iOS has a key window during launch ──
+    // Qt's showMaximized() creates its own QUIWindow and calls makeKeyAndVisible,
+    // replacing this as the active window.  Without any window here, keyWindow
+    // is nil and Qt's QUIWindow may not become visible on iOS 16+.
     self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
+    self.window.backgroundColor = [UIColor blackColor];
     UIViewController *rootVC = [[UIViewController alloc] init];
-    rootVC.view.backgroundColor = [UIColor blackColor];
     self.window.rootViewController = rootVC;
     [self.window makeKeyAndVisible];
 
