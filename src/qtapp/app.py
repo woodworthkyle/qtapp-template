@@ -545,10 +545,10 @@ def _load_subapp_widget(script_path: Path, back_fn):
                             # the engine only understands "import Module".
                             if _l.startswith("default import "):
                                 _l = _l[len("default "):]
-                            # Strip "prefer" — we'll copy QML files locally
-                            # so the engine never needs to load from qrc
-                            # (a secondary qmldir load from qrc would re-expose
-                            # the broken "plugin" directive).
+                            # Strip "prefer" — QML files are copied locally
+                            # so the engine never loads from qrc (re-reading
+                            # the qrc qmldir would re-expose the broken plugin
+                            # directive and mark the module unavailable).
                             if _l.startswith("prefer "):
                                 _prefer_base = _l[len("prefer "):].strip()
                                 if not _prefer_base.endswith("/"):
@@ -655,10 +655,20 @@ def _load_subapp_widget(script_path: Path, back_fn):
                         print(f"[qtapp] reg error {_fw_name}: {_e}", file=sys.stderr)
 
 
-            # Prepend stub_dir to the import path list so the engine finds
-            # our clean stubs before the qrc paths.
+            # ── resolve QML stubs directory ───────────────────────────────
+            # Preferred: pre-built stubs bundled by the Xcode build phase
+            # (scripts/ios/prepare_qml_stubs.py → {bundle}/qml_stubs/).
+            # Fallback: extract from qrc at runtime into a temp directory.
+            # The stubs replace qrc qmldirs that have broken "plugin"
+            # directives for .so files that don't exist on iOS.
+            _bundled = bundle_root / "qml_stubs" if bundle_root else None
+            if _bundled and _bundled.is_dir():
+                _stubs_path = str(_bundled)
+            else:
+                _stubs_path = str(_stub_dir)
+
             _paths = list(_engine.importPathList())
-            _paths.insert(0, str(_stub_dir))
+            _paths.insert(0, _stubs_path)
             _engine.setImportPathList(_paths)
 
             w = QQuickWidget(_engine, None)

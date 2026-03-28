@@ -251,3 +251,54 @@ targets:
           mkdir -p "$DEST"
           rsync -a --delete "${SRCROOT}/../../apps/" "$DEST/"
         runOnlyWhenInstalling: false
+
+      # Build QML module stubs for iOS.
+      #
+      # Qt's qrc-embedded qmldirs reference plugin .so files that don't exist
+      # in a dynamic PySide6 iOS build.  This phase reads the QML module files
+      # from the macOS PySide6 installation, strips the iOS-incompatible
+      # directives (plugin, classname, prefer), and bundles the result at
+      # {bundle}/qml_stubs/.  At runtime the engine is pointed at qml_stubs/
+      # before the qrc paths, so it never encounters the broken plugin line.
+      #
+      # Requires a Python with PySide6 importable on the build machine.
+      # Set PYSIDE6_PYTHON in config.env to pin a specific interpreter, e.g.:
+      #   PYSIDE6_PYTHON=/opt/homebrew/Caskroom/miniforge/base/envs/myenv/bin/python3
+      # If unset, the script searches common conda environments automatically.
+      #
+      # NOTE: The macOS PySide6 version should match the iOS wheel.  A minor
+      # mismatch is tolerated for stable controls (Button, Label, SpinBox, etc.)
+      # but types added in newer Qt releases may be missing from the stubs.
+      # Rebuild with a matching PySide6 version when upgrading the iOS wheel.
+      - name: "Prepare QML stubs for iOS"
+        script: |
+          set -e
+          # ── find a Python that has PySide6 ──────────────────────────────
+          PYSIDE6_PY="${PYSIDE6_PYTHON:-}"
+          if [[ -n "$PYSIDE6_PY" ]]; then
+              if ! "$PYSIDE6_PY" -c "import PySide6" 2>/dev/null; then
+                  echo "warning: PYSIDE6_PYTHON ($PYSIDE6_PY) cannot import PySide6" >&2
+                  PYSIDE6_PY=""
+              fi
+          fi
+          if [[ -z "$PYSIDE6_PY" ]]; then
+              for candidate in \
+                  python3 \
+                  /opt/homebrew/Caskroom/miniforge/base/envs/*/bin/python3 \
+                  /opt/homebrew/bin/python3 \
+                  /usr/local/bin/python3; do
+                  if "$candidate" -c "import PySide6" 2>/dev/null; then
+                      PYSIDE6_PY="$candidate"
+                      break
+                  fi
+              done
+          fi
+          if [[ -z "$PYSIDE6_PY" ]]; then
+              echo "error: No Python with PySide6 found. Set PYSIDE6_PYTHON in config.env." >&2
+              exit 1
+          fi
+          # ── run the extraction script ───────────────────────────────────
+          DEST="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/qml_stubs"
+          mkdir -p "$DEST"
+          "$PYSIDE6_PY" "${SRCROOT}/prepare_qml_stubs.py" --dest "$DEST"
+        runOnlyWhenInstalling: false

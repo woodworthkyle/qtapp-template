@@ -1,5 +1,19 @@
 # qtapp-template wishlist
 
+## iOS: QML plugin loading
+- **Custom QML C++ plugins on iOS**: iOS prohibits `dlopen()`, so Qt's plugin
+  system (which loads `.so` files at runtime via `plugin` directives in qmldirs)
+  cannot work.  The current workaround strips plugin directives and calls
+  `qml_register_types_*` symbols directly via ctypes.  A proper solution would
+  require either `Q_IMPORT_PLUGIN` in the ObjC entry point (static linking) or
+  a PySide6 iOS build that omits plugin directives from its qrc qmldirs.
+  Users who need to ship custom QML C++ extension plugins on iOS will hit the
+  same wall — investigate a general plugin-loading mechanism for this case.
+- **QML stubs version matching**: The Xcode build phase (`prepare_qml_stubs.py`)
+  extracts QML files from whatever macOS PySide6 is available, which may not
+  match the iOS wheel version.  Upstream fix: add a `qml/` directory to the
+  PySide6 iOS wheel itself, eliminating the need for the extraction step.
+
 ## iOS bootstrap
 - ~~Replace the current Briefcase/Toga iOS bootstrap with a custom Xcode project~~ ✓ Done
 - Make app lifecycle handled all in python
@@ -41,3 +55,6 @@
 - uBlog
 - todo/task editor → calendar publish
 - Code editor (see `qtiostest/sample_apps/code_editor.py` for reference)
+
+## Build Env
+- create mamba env so that proper package versions are used for building
