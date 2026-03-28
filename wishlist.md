@@ -39,8 +39,23 @@
 - Evaluate replacing Briefcase entirely with a minimal custom Xcode template
   stored in `scripts/ios/xcode-template/` that embeds Python.xcframework directly.
 
+## App icon / branding
+- **iOS app icon**: Add an `AppIcon.xcassets` asset catalog with the required
+  sizes (20–1024pt).  Reference it in `xcodegen.yml` via `sources` and
+  `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon` in build settings.
+  `setup.sh` or a helper script should accept a source image and generate
+  the full set (e.g. with `sips` or ImageMagick).
+- **iOS launch screen**: Replace the bare `UILaunchScreen: {}` in Info.plist
+  with a proper launch screen.  Options:
+  - `UILaunchScreen` dict keys (`UIColorName`, `UIImageName`) for a simple
+    background + centered logo — no storyboard required, iOS 14+.
+  - `LaunchScreen.storyboard` for full layout control; add to `objc/` and
+    reference via `UILaunchStoryboardName` in Info.plist.
+- **Display name**: `CFBundleDisplayName` in Info.plist (separate from
+  `CFBundleName`) so the home screen label can differ from the binary name.
+  Wire through `config.env` alongside `APP_NAME`.
+
 ## All platforms
-- App icon + display name configuration per platform.
 - Remote debugging over WireGuard VPN (Xcode device discovery fails through VPN;
   investigate `xcrun devicectl` as a workaround — it uses Bonjour-independent
   device tunnels and already works).
