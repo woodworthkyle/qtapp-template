@@ -75,17 +75,24 @@ echo "    $APP_SRC → $OVERRIDE_DST"
 
 # ── deploy a single named app + its siblings ───────────────────────────────────
 if [[ -n "$APP_ARG" ]]; then
-    SCRIPT_SRC="$APPS_DIR/${APP_ARG}.py"
-    if [[ ! -f "$SCRIPT_SRC" ]]; then
-        echo "ERROR: app not found: $SCRIPT_SRC" >&2
+    # Try .py first, then .qml
+    if [[ -f "$APPS_DIR/${APP_ARG}.py" ]]; then
+        SCRIPT_SRC="$APPS_DIR/${APP_ARG}.py"
+        SCRIPT_EXT="py"
+    elif [[ -f "$APPS_DIR/${APP_ARG}.qml" ]]; then
+        SCRIPT_SRC="$APPS_DIR/${APP_ARG}.qml"
+        SCRIPT_EXT="qml"
+    else
+        echo "ERROR: app not found: $APPS_DIR/${APP_ARG}.{py,qml}" >&2
         exit 1
     fi
-    echo "==> Deploying app: ${APP_ARG}.py → Documents/${APP_ARG}.py"
-    _devicectl_copy "$SCRIPT_SRC" "Documents/${APP_ARG}.py"
+    echo "==> Deploying app: ${APP_ARG}.${SCRIPT_EXT} → Documents/${APP_ARG}.${SCRIPT_EXT}"
+    _devicectl_copy "$SCRIPT_SRC" "Documents/${APP_ARG}.${SCRIPT_EXT}"
     # Also push sibling helper files from apps/
-    for dep in "$APPS_DIR"/*.py; do
+    for dep in "$APPS_DIR"/*.py "$APPS_DIR"/*.qml; do
+        [[ -f "$dep" ]] || continue
         dep_name=$(basename "$dep")
-        if [[ "$dep_name" != "${APP_ARG}.py" ]]; then
+        if [[ "$dep_name" != "${APP_ARG}.${SCRIPT_EXT}" ]]; then
             _devicectl_copy "$dep" "Documents/${dep_name}" 2>/dev/null || true
         fi
     done

@@ -485,7 +485,187 @@ def _load_subapp_widget(script_path: Path, back_fn):
         from PySide6.QtQuickWidgets import QQuickWidget
         from PySide6.QtCore import QUrl
 
-        w = QQuickWidget()
+        if sys.platform == "ios":
+            # Load Qt framework binaries so their global constructors run.
+            # The constructors create QQmlModuleRegistration objects that
+            # register deferred type-registration callbacks.  Those callbacks
+            # are triggered automatically when the QML engine first imports
+            # each module — we do NOT call them manually here because doing
+            # so before the engine exists causes double-registration conflicts.
+            import ctypes as _ct
+            import tempfile as _tmpfile
+            bundle_root = _find_bundle_root()
+            if bundle_root:
+                _fw_dir = bundle_root / "Frameworks"
+                for _fw_name in (
+                    "QtQuick", "QtQuickTemplates2", "QtQuickControls2Impl",
+                    "QtQuickControls2", "QtQuickControls2Basic", "QtQuickLayouts",
+                ):
+                    _fw_bin = _fw_dir / f"{_fw_name}.framework" / _fw_name
+                    if _fw_bin.exists():
+                        try:
+                            _ct.CDLL(str(_fw_bin))
+                        except OSError:
+                            pass
+
+            # Both qrc import paths (qrc:/qt/qml and qrc:/qt-project.org/imports)
+            # Both qrc import paths contain qmldirs with "plugin" directives
+            # for plugin binaries that don't exist on a dynamic iOS build.
+            # We replace them with minimal disk-based stubs that have NO plugin
+            # directive.  The actual types were registered above by calling the
+            # qml_register_types_* functions directly via ctypes.
+            #
+            # QtQuick.Controls qmldir needs "default import QtQuick.Controls.Basic
+            # auto" so the engine automatically imports the Basic style and
+            # exposes SpinBox, Label, Button, etc.
+
+            from PySide6.QtQml import QQmlEngine
+            from PySide6.QtCore import QFile, QIODevice
+            from PySide6.QtQuickControls2 import QQuickStyle
+            QQuickStyle.setStyle("Basic")
+
+            # Read the real qmldir from qrc, strip directives that require
+            # plugins (which don't exist in a dynamic iOS PySide6 build), and
+            # return (cleaned_text, qrc_prefix) so QML files can be copied.
+            def _read_qrc_qmldir(rel_path):
+                for _pfx in (":/qt/qml/", ":/qt-project.org/imports/"):
+                    _f = QFile(_pfx + rel_path + "/qmldir")
+                    if _f.open(QIODevice.OpenModeFlag.ReadOnly):
+                        _txt = bytes(_f.readAll()).decode("utf-8", errors="replace")
+                        _f.close()
+                        _prefer_base = _pfx + rel_path + "/"
+                        _lines = []
+                        for _l in _txt.splitlines():
+                            if (_l.startswith("plugin ")
+                                    or _l.startswith("optional plugin ")
+                                    or _l.startswith("classname ")):
+                                continue
+                            # "default import" is a non-standard Qt Quick
+                            # Controls extension processed by the plugin;
+                            # the engine only understands "import Module".
+                            if _l.startswith("default import "):
+                                _l = _l[len("default "):]
+                            # Strip "prefer" — we'll copy QML files locally
+                            # so the engine never needs to load from qrc
+                            # (a secondary qmldir load from qrc would re-expose
+                            # the broken "plugin" directive).
+                            if _l.startswith("prefer "):
+                                _prefer_base = _l[len("prefer "):].strip()
+                                if not _prefer_base.endswith("/"):
+                                    _prefer_base += "/"
+                                continue
+                            _lines.append(_l)
+                        return "\n".join(_lines) + "\n", _prefer_base
+                return None, None
+
+            # Copy every .qml / .js file referenced in a processed qmldir from
+            # qrc to the local stub directory so the engine stays on-disk.
+            def _copy_qrc_qml_files(qmldir_text, prefer_base, dest_dir):
+                for _line in qmldir_text.splitlines():
+                    _tok = _line.split()
+                    # type lines: [qualifier] ComponentName version File.qml
+                    for _t in _tok:
+                        if _t.endswith(".qml") or _t.endswith(".js"):
+                            _src_path = prefer_base + _t
+                            _dst_path = dest_dir / _t
+                            if _dst_path.exists():
+                                break
+                            _qf = QFile(_src_path)
+                            if _qf.open(QIODevice.OpenModeFlag.ReadOnly):
+                                _data = bytes(_qf.readAll())
+                                _qf.close()
+                                _dst_path.write_bytes(_data)
+                            break
+
+            _stub_dir = Path(_tmpfile.mkdtemp())
+            _module_map = {
+                "QtQuick":                    "QtQuick",
+                "QtQuick.Templates":          "QtQuick/Templates",
+                "QtQuick.Controls.impl":      "QtQuick/Controls/impl",
+                "QtQuick.Controls.Basic":     "QtQuick/Controls/Basic",
+                "QtQuick.Layouts":            "QtQuick/Layouts",
+                "QtQuick.Controls":           "QtQuick/Controls",
+                # Empty stubs for all style overrides to block them from loading
+                # their qrc qmldirs which have broken plugin directives AND
+                # type overrides that corrupt the Basic type registrations.
+                "QtQuick.Controls.iOS":       "QtQuick/Controls/iOS",
+                "QtQuick.Controls.Material":  "QtQuick/Controls/Material",
+                "QtQuick.Controls.Fusion":    "QtQuick/Controls/Fusion",
+                "QtQuick.Controls.Imagine":   "QtQuick/Controls/Imagine",
+                "QtQuick.Controls.Universal": "QtQuick/Controls/Universal",
+            }
+            _style_overrides = {
+                "QtQuick.Controls.iOS", "QtQuick.Controls.Material",
+                "QtQuick.Controls.Fusion", "QtQuick.Controls.Imagine",
+                "QtQuick.Controls.Universal",
+            }
+            for _uri, _rel in _module_map.items():
+                _d = _stub_dir / _rel
+                _d.mkdir(parents=True, exist_ok=True)
+                if _uri in _style_overrides:
+                    # Empty stub — prevent qrc version (with plugin + type overrides) from loading
+                    _body = f"module {_uri}\n"
+                else:
+                    _body, _prefer_base = _read_qrc_qmldir(_rel)
+                    if _body is None:
+                        _body = f"module {_uri}\n"
+                        if _uri == "QtQuick.Controls":
+                            _body += "import QtQuick.Controls.Basic auto\n"
+                    elif _prefer_base:
+                        # Copy every QML/JS file referenced in this module's
+                        # qmldir from qrc into the stub directory so the engine
+                        # never loads from qrc (avoids secondary qmldir reload
+                        # which would re-expose the broken plugin directive).
+                        _copy_qrc_qml_files(_body, _prefer_base, _d)
+                (_d / "qmldir").write_text(_body)
+
+            _engine = QQmlEngine()
+
+            # Call type registration functions now that the engine exists.
+            # These are normally called by the plugin's registerTypes() entry
+            # point.  We call them directly so the engine's type registry is
+            # populated before any QML is compiled.
+            if bundle_root:
+                _REG_SYMS = (
+                    ("QtQuick",             "_Z26qml_register_types_QtQuickv"),
+                    ("QtQuickTemplates2",    "_Z36qml_register_types_QtQuick_Templatesv"),
+                    ("QtQuickControls2Impl", "_Z40qml_register_types_QtQuick_Controls_implv"),
+                    ("QtQuickControls2",     "_Z35qml_register_types_QtQuick_Controlsv"),
+                    ("QtQuickControls2Basic","_Z41qml_register_types_QtQuick_Controls_Basicv"),
+                    ("QtQuickLayouts",       "_Z34qml_register_types_QtQuick_Layoutsv"),
+                )
+                _fw_dir = bundle_root / "Frameworks"
+                for _fw_name, _sym in _REG_SYMS:
+                    _fw_bin = _fw_dir / f"{_fw_name}.framework" / _fw_name
+                    if not _fw_bin.exists():
+                        continue
+                    try:
+                        _lib = _ct.CDLL(str(_fw_bin))
+                    except OSError as _e:
+                        print(f"[qtapp] CDLL {_fw_name}: {_e}", file=sys.stderr)
+                        continue
+                    _fn = getattr(_lib, _sym, None)
+                    if _fn is None:
+                        continue
+                    try:
+                        _fn.restype = None
+                        _fn.argtypes = []
+                        _fn()
+                    except Exception as _e:
+                        print(f"[qtapp] reg error {_fw_name}: {_e}", file=sys.stderr)
+
+
+            # Prepend stub_dir to the import path list so the engine finds
+            # our clean stubs before the qrc paths.
+            _paths = list(_engine.importPathList())
+            _paths.insert(0, str(_stub_dir))
+            _engine.setImportPathList(_paths)
+
+            w = QQuickWidget(_engine, None)
+            w._qml_engine = _engine
+        else:
+            w = QQuickWidget()
+
         w.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
         w.setSource(QUrl.fromLocalFile(str(script_path)))
         if w.status() == QQuickWidget.Status.Error:
@@ -540,8 +720,11 @@ def _resolve_launch_script(name_or_path: str) -> Path | None:
     if p.is_absolute():
         return p if p.exists() else None
     docs = Path(os.path.expanduser("~")) / "Documents"
-    candidate = docs / f"{name_or_path}.py"
-    return candidate if candidate.exists() else None
+    for ext in (".py", ".qml"):
+        candidate = docs / f"{name_or_path}{ext}"
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def _handle_launch_args(launcher) -> None:
