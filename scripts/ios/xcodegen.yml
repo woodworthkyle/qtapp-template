@@ -106,7 +106,7 @@ targets:
         com.apple.developer.icloud-services:
           - CloudDocuments
         com.apple.developer.ubiquity-container-identifiers:
-          - "iCloud.$(CFBundleIdentifier)"
+          - "iCloud.${BUNDLE_ID}"
 
     # ── Pre-build scripts ──────────────────────────────────────────────────
     # preBuildScripts run before Copy Bundle Resources.  We sign the source
